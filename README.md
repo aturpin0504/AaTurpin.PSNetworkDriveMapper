@@ -4,7 +4,8 @@ A PowerShell module for mapping network drives with credential management and va
 
 ## Features
 
-- **Secure Credential Management**: Automatically handles user credentials with secure password prompting
+- **Flexible Credential Management**: Supports multiple username formats with optional domain specification
+- **Secure Password Handling**: Uses secure password prompting with automatic domain detection
 - **Robust Drive Mapping**: Maps network drives with validation and error handling
 - **Smart Remapping**: Automatically detects existing mappings and only remaps when necessary
 - **Comprehensive Logging**: Integrates with AaTurpin.PSLogger for detailed operation logging
@@ -12,16 +13,22 @@ A PowerShell module for mapping network drives with credential management and va
 
 ## Installation
 
-Install the module from the PowerShell Gallery:
+First, register the NuGet repository if you haven't already:
 
 ```powershell
-Install-Module -Name AaTurpin.PSNetworkDriveMapper -Scope CurrentUser
+Register-PSRepository -Name "NuGet" -SourceLocation "https://api.nuget.org/v3/index.json" -PublishLocation "https://www.nuget.org/api/v2/package/" -InstallationPolicy Trusted
 ```
 
-Or for all users (requires admin privileges):
+Then install the module:
 
 ```powershell
-Install-Module -Name AaTurpin.PSNetworkDriveMapper -Scope AllUsers
+Install-Module -Name AaTurpin.PSNetworkDriveMapper -Repository NuGet -Scope CurrentUser
+```
+
+Or for all users (requires administrator privileges):
+
+```powershell
+Install-Module -Name AaTurpin.PSNetworkDriveMapper -Repository NuGet -Scope AllUsers
 ```
 
 ## Prerequisites
@@ -49,29 +56,53 @@ Map-NetworkDrive -DriveLetter "X" -NetworkPath "\\nas\data" -LogPath "C:\Logs\dr
 ### Getting User Credentials
 
 ```powershell
-# Prompt for credentials using current username
+# Prompt for credentials with automatic domain detection
 $credential = Get-UserCredential
-# This will prompt: "Enter your password" and create credentials for "logon\[current_username]"
+# User can enter: "domain\username" or just "username" (uses current domain)
+
+# Specify domain upfront for cleaner input
+$credential = Get-UserCredential -Domain "corp"
+# User only needs to enter: "username"
 ```
 
 ## Functions
 
 ### Get-UserCredential
 
-Prompts the user for their password and creates a PSCredential object using the current user's username in the format "logon\$env:USERNAME".
+Prompts the user for their username and password and creates a PSCredential object. Supports flexible username formats and optional domain specification.
 
 **Syntax:**
 ```powershell
-Get-UserCredential
+Get-UserCredential [[-Domain] <string>]
 ```
+
+**Parameters:**
+- `Domain`: Optional domain name. If provided, user only needs to enter username. If not provided, user can enter domain\username or just username (defaults to current domain).
 
 **Returns:** `[System.Management.Automation.PSCredential]`
 
-**Example:**
+**Examples:**
+
+**Basic usage (flexible format):**
 ```powershell
 $credential = Get-UserCredential
+# User can enter:
+#   - "corp\jdoe" (domain\username)
+#   - "jdoe" (uses current domain: USERDOMAIN\jdoe)
+```
+
+**With domain parameter:**
+```powershell
+$credential = Get-UserCredential -Domain "corp"
+# User only enters: "jdoe"
+# Result: "corp\jdoe"
+```
+
+**Enterprise scenario:**
+```powershell
+$credential = Get-UserCredential -Domain "company"
 Write-Host "Username: $($credential.UserName)"
-# Output: Username: logon\johndoe
+# Output: Username: company\jdoe
 ```
 
 ### Map-NetworkDrive
@@ -97,7 +128,7 @@ Map-NetworkDrive [-DriveLetter] <string> [-NetworkPath] <string> [-LogPath] <str
 $success = Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Logs\drive.log"
 
 # Map with credentials
-$credential = Get-UserCredential
+$credential = Get-UserCredential -Domain "corp"
 $success = Map-NetworkDrive -DriveLetter "X" -NetworkPath "\\nas\data" -LogPath "C:\Logs\drive.log" -Credential $credential
 
 # Test what would happen without actually mapping
@@ -114,7 +145,10 @@ Import-Module AaTurpin.PSNetworkDriveMapper
 Import-Module AaTurpin.PSLogger
 
 $logPath = "C:\Logs\$(Get-Date -Format 'yyyy-MM-dd')_drive_mapping.log"
-$credential = Get-UserCredential
+
+# Get credentials once for all mappings
+Write-Host "Enter credentials for network drive access:" -ForegroundColor Cyan
+$credential = Get-UserCredential -Domain "corp"
 
 # Define drive mappings
 $driveMappings = @(
@@ -144,6 +178,48 @@ foreach ($mapping in $driveMappings) {
 Write-LogInfo -LogPath $logPath -Message "Enterprise drive mapping process completed"
 ```
 
+### Domain-Specific Credential Scenarios
+
+```powershell
+# Scenario 1: Multiple domains
+function Get-DomainCredentials {
+    $credentials = @{}
+    
+    # Get credentials for different domains
+    Write-Host "Setting up credentials for different domains..." -ForegroundColor Cyan
+    
+    $credentials["corp"] = Get-UserCredential -Domain "corp"
+    $credentials["dev"] = Get-UserCredential -Domain "dev"
+    
+    return $credentials
+}
+
+# Usage
+$domainCreds = Get-DomainCredentials()
+Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\corp.server\share" -LogPath $logPath -Credential $domainCreds["corp"]
+Map-NetworkDrive -DriveLetter "W" -NetworkPath "\\dev.server\data" -LogPath $logPath -Credential $domainCreds["dev"]
+```
+
+```powershell
+# Scenario 2: Interactive domain selection
+function Get-InteractiveDomainCredential {
+    $domains = @("corp", "dev", "prod", "test")
+    
+    Write-Host "Available domains:" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $domains.Count; $i++) {
+        Write-Host "  $($i + 1). $($domains[$i])" -ForegroundColor Gray
+    }
+    
+    $choice = Read-Host "Select domain (1-$($domains.Count))"
+    $selectedDomain = $domains[[int]$choice - 1]
+    
+    return Get-UserCredential -Domain $selectedDomain
+}
+
+# Usage
+$credential = Get-InteractiveDomainCredential
+```
+
 ### Validation and Error Handling
 
 ```powershell
@@ -152,7 +228,8 @@ function Test-DriveMapping {
     param(
         [string]$DriveLetter,
         [string]$NetworkPath,
-        [string]$LogPath
+        [string]$LogPath,
+        [string]$Domain
     )
     
     try {
@@ -170,8 +247,14 @@ function Test-DriveMapping {
             Write-LogWarning -LogPath $LogPath -Message "Network path may not be accessible: $NetworkPath"
         }
         
+        # Get credentials with appropriate domain
+        if ($Domain) {
+            $credential = Get-UserCredential -Domain $Domain
+        } else {
+            $credential = Get-UserCredential
+        }
+        
         # Attempt mapping
-        $credential = Get-UserCredential
         $result = Map-NetworkDrive -DriveLetter $DriveLetter -NetworkPath $NetworkPath -LogPath $LogPath -Credential $credential
         
         return $result
@@ -183,7 +266,7 @@ function Test-DriveMapping {
 }
 
 # Usage
-$success = Test-DriveMapping -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Logs\validation.log"
+$success = Test-DriveMapping -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Logs\validation.log" -Domain "corp"
 ```
 
 ## Integration with Other AaTurpin Modules
@@ -197,7 +280,10 @@ Import-Module AaTurpin.PSNetworkDriveMapper
 
 $logPath = "C:\Logs\config_mapping.log"
 $config = Read-SettingsFile -LogPath $logPath
-$credential = Get-UserCredential
+
+# Get credentials once for all drive mappings
+Write-Host "Enter network credentials for drive mapping:" -ForegroundColor Cyan
+$credential = Get-UserCredential -Domain "corp"
 
 # Map drives from configuration
 foreach ($driveMapping in $config.driveMappings) {
@@ -209,15 +295,99 @@ foreach ($driveMapping in $config.driveMappings) {
 }
 ```
 
+### Automated Setup Script
+
+```powershell
+# Complete automated setup matching your settings.json structure
+Import-Module AaTurpin.PSConfig
+Import-Module AaTurpin.PSNetworkDriveMapper
+
+$logPath = "C:\Logs\automated_setup.log"
+
+try {
+    # Read configuration
+    $config = Read-SettingsFile -LogPath $logPath
+    
+    # Get credentials for corporate domain
+    Write-Host "Setting up network drives for corporate environment..." -ForegroundColor Cyan
+    $credential = Get-UserCredential -Domain "corp"
+    
+    # Map drives from configuration
+    foreach ($driveMapping in $config.driveMappings) {
+        Write-Host "Mapping drive $($driveMapping.letter): $($driveMapping.path)" -ForegroundColor Yellow
+        
+        $success = Map-NetworkDrive -DriveLetter $driveMapping.letter -NetworkPath $driveMapping.path -LogPath $logPath -Credential $credential
+        
+        if ($success) {
+            Write-Host "✓ Drive $($driveMapping.letter): successfully mapped" -ForegroundColor Green
+        } else {
+            Write-Host "✗ Drive $($driveMapping.letter): mapping failed" -ForegroundColor Red
+        }
+    }
+    
+    Write-Host "Drive mapping setup completed. Check logs at: $logPath" -ForegroundColor Cyan
+}
+catch {
+    Write-LogError -LogPath $logPath -Message "Automated setup failed" -Exception $_.Exception
+    Write-Host "Setup failed. Check logs for details: $logPath" -ForegroundColor Red
+}
+```
+
+## Username Format Examples
+
+The `Get-UserCredential` function supports various input formats:
+
+### With Domain Parameter
+```powershell
+$cred = Get-UserCredential -Domain "corp"
+# User enters: "jdoe"
+# Result: "corp\jdoe"
+```
+
+### Without Domain Parameter
+```powershell
+$cred = Get-UserCredential
+# User can enter any of:
+#   1. "corp\jdoe" → Result: "corp\jdoe"
+#   2. "jdoe" → Result: "CURRENTDOMAIN\jdoe" (uses $env:USERDOMAIN)
+```
+
+### Enterprise Domain Examples
+```powershell
+# Corporate domains
+$cred = Get-UserCredential -Domain "corp"
+$cred = Get-UserCredential -Domain "company"
+
+# Other common enterprise formats
+$cred = Get-UserCredential -Domain "dev"
+$cred = Get-UserCredential -Domain "domain"
+```
+
 ## Troubleshooting
 
 ### Common Issues
 
 **Issue: "Access Denied" errors**
 ```powershell
-# Solution: Ensure credentials are correct and user has access
-$credential = Get-UserCredential
-# Enter correct password when prompted
+# Solution: Ensure correct domain and credentials
+$credential = Get-UserCredential -Domain "corp"
+# Verify domain name is correct and user has access
+```
+
+**Issue: Wrong domain format**
+```powershell
+# Check current domain
+Write-Host "Current domain: $env:USERDOMAIN"
+
+# Use specific domain
+$credential = Get-UserCredential -Domain $env:USERDOMAIN
+```
+
+**Issue: Username format confusion**
+```powershell
+# Clear format: specify domain parameter
+$credential = Get-UserCredential -Domain "corp"
+# Now user only enters username, no domain confusion
 ```
 
 **Issue: Drive already mapped to different location**
@@ -256,17 +426,38 @@ Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Log
 Get-Content "C:\Logs\debug.log" | Select-Object -Last 20
 ```
 
+### Credential Testing
+
+```powershell
+# Test credential creation without mapping
+function Test-CredentialFormats {
+    Write-Host "Testing different credential input formats..." -ForegroundColor Cyan
+    
+    Write-Host "`n1. With domain parameter:" -ForegroundColor Yellow
+    $cred1 = Get-UserCredential -Domain "corp"
+    Write-Host "Result: $($cred1.UserName)" -ForegroundColor Green
+    
+    Write-Host "`n2. Without domain parameter:" -ForegroundColor Yellow
+    $cred2 = Get-UserCredential
+    Write-Host "Result: $($cred2.UserName)" -ForegroundColor Green
+}
+
+Test-CredentialFormats
+```
+
 ## Security Considerations
 
 - **Credential Storage**: Credentials are not stored permanently; they must be entered each session
+- **Secure Input**: Passwords are entered securely and never displayed
 - **Logging**: Passwords are never logged; only usernames and operation results are recorded
-- **Validation**: All input parameters are validated to prevent injection attacks
+- **Domain Validation**: Input validation prevents domain injection attacks
 - **Error Handling**: Detailed error information is logged without exposing sensitive data
 
 ## Performance Notes
 
 - **Smart Mapping**: Only remaps drives when necessary, improving performance
 - **Credential Reuse**: Get credentials once and reuse for multiple mappings
+- **Domain Optimization**: Pre-specifying domain reduces user input complexity
 - **Logging Efficiency**: Uses thread-safe logging from AaTurpin.PSLogger module
 
 ## Contributing
@@ -279,13 +470,14 @@ This module is licensed under the MIT License. See the project repository for fu
 
 ## Version History
 
-- **1.0.0**: Initial release with core network drive mapping functionality
+- **1.0.0**: Initial release with flexible credential management and robust drive mapping functionality
 
 ## Related Modules
 
 - **AaTurpin.PSLogger**: Provides thread-safe logging capabilities
 - **AaTurpin.PSConfig**: Configuration management for drive mappings
 - **AaTurpin.PSPowerControl**: Power management during long operations
+- **AaTurpin.PSSnapshotManager**: Network share snapshot and comparison tools
 
 ## Support
 
