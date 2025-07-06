@@ -208,4 +208,106 @@ function Map-NetworkDrive {
     }
 }
 
-Export-ModuleMember -Function Get-UserCredential, Map-NetworkDrive
+function Initialize-DriveMappings {
+    <#
+    .SYNOPSIS
+        Maps network drives with optional credential prompting.
+    
+    .DESCRIPTION
+        Processes an array of drive mapping objects and attempts to map each one.
+        For failed mappings, prompts for credentials and retries. Throws an error
+        if any mappings fail after retry attempts.
+    
+    .PARAMETER DriveMappings
+        Array of drive mapping objects with 'letter' and 'path' properties.
+    
+    .PARAMETER LogPath
+        The path to the log file where operations will be logged using PSLogger.
+    
+    .EXAMPLE
+        $mappings = @(
+            @{ letter = "V"; path = "\\server\share1" },
+            @{ letter = "X"; path = "\\server\share2" }
+        )
+        Initialize-DriveMappings -DriveMappings $mappings -LogPath "app.log"
+    
+    .OUTPUTS
+        None. Throws an exception if any mappings fail.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNull()]
+        [array]$DriveMappings,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$LogPath
+    )
+    
+    Write-Host "`nProcessing drive mappings..." -ForegroundColor Cyan
+    
+    try {
+        if ($DriveMappings.Count -eq 0) {
+            Write-Host "No drive mappings configured." -ForegroundColor Yellow
+            return
+        }
+        
+        $MappingFailures = 0
+        $Credential = $null
+        $CredentialPrompted = $false
+        
+        foreach ($mapping in $DriveMappings) {
+            Write-Host "`nMapping drive: $($mapping.letter) -> $($mapping.path)" -ForegroundColor Yellow
+            
+            # Try without credentials first
+            $success = Map-NetworkDrive -DriveLetter $mapping.letter -NetworkPath $mapping.path -LogPath $LogPath
+            
+            if (-not $success) {
+                # Prompt for credentials if user wants
+                $response = Read-Host "Provide credentials for drive $($mapping.letter)? [Y/N]"
+                
+                if ($response -match '^[Yy]') {
+                    # Get credentials once, reuse for other drives
+                    if (-not $CredentialPrompted) {
+                        try {
+                            $Credential = Get-UserCredential
+                            $CredentialPrompted = $true
+                        }
+                        catch {
+                            Write-Host "Failed to get credentials: $($_.Exception.Message)" -ForegroundColor Red
+                            $MappingFailures++
+                            continue
+                        }
+                    }
+                    
+                    # Try with credentials
+                    $success = Map-NetworkDrive -DriveLetter $mapping.letter -NetworkPath $mapping.path -LogPath $LogPath -Credential $Credential
+                }
+                
+                if (-not $success) {
+                    $MappingFailures++
+                }
+            }
+            
+            if ($success) {
+                Write-Host "✓ Drive $($mapping.letter) mapped successfully" -ForegroundColor Green
+            }
+        }
+        
+        # Throw error if any mappings failed
+        if ($MappingFailures -gt 0) {
+            $ErrorMessage = "Failed to map $MappingFailures out of $($DriveMappings.Count) drives."
+            Write-Host "`n$ErrorMessage" -ForegroundColor Red
+            Write-LogError -LogPath $LogPath -Message $ErrorMessage
+            throw $ErrorMessage
+        }
+        
+        Write-Host "`n✓ All drive mappings completed successfully!" -ForegroundColor Green
+    }
+    catch {
+        Write-LogError -LogPath $LogPath -Message "Failed to initialize drive mappings" -Exception $_.Exception
+        throw "Failed to initialize drive mappings: $($_.Exception.Message)"
+    }
+}
+
+Export-ModuleMember -Function Get-UserCredential, Map-NetworkDrive, Initialize-DriveMappings

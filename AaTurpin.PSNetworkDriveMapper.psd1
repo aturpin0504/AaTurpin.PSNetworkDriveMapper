@@ -12,7 +12,7 @@
 RootModule = 'AaTurpin.PSNetworkDriveMapper.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.0'
+ModuleVersion = '1.1.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@ CompanyName = 'Unknown'
 Copyright = '(c) 2025 aaturpin. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'PowerShell module for mapping network drives with credential management and validation. Provides secure credential handling and robust drive mapping functionality with comprehensive error handling and logging support.'
+Description = 'PowerShell module for mapping network drives with credential management and validation. Provides secure credential handling, robust drive mapping functionality, and batch drive mapping operations with comprehensive error handling and logging support.'
 
 # Minimum version of the Windows PowerShell engine required by this module
 PowerShellVersion = '5.1'
@@ -74,7 +74,7 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = 'Get-UserCredential', 'Map-NetworkDrive'
+FunctionsToExport = 'Get-UserCredential', 'Map-NetworkDrive', 'Initialize-DriveMappings'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -113,7 +113,7 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Initial release with network drive mapping capabilities. Includes secure credential management with automatic username detection, robust drive mapping with validation and error handling, and integration with AaTurpin.PSLogger for comprehensive logging.'
+        ReleaseNotes = 'Version 1.1.0: Added Initialize-DriveMappings function for batch drive mapping operations. Enables processing multiple drive mappings with shared credential handling, interactive prompting, and comprehensive error reporting. Maintains full backward compatibility with all existing functionality including secure credential management, automatic username detection, and integration with AaTurpin.PSLogger.'
 
     } # End of PSData hashtable
 

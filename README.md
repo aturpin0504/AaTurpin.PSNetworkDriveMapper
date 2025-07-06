@@ -1,13 +1,15 @@
 # AaTurpin.PSNetworkDriveMapper
 
-A PowerShell module for mapping network drives with credential management and validation. Provides secure credential handling and robust drive mapping functionality with comprehensive error handling and logging support.
+A PowerShell module for mapping network drives with credential management and validation. Provides secure credential handling, robust drive mapping functionality, and batch drive mapping operations with comprehensive error handling and logging support.
 
 ## Features
 
 - **Flexible Credential Management**: Supports multiple username formats with optional domain specification
 - **Secure Password Handling**: Uses secure password prompting with automatic domain detection
 - **Robust Drive Mapping**: Maps network drives with validation and error handling
+- **Batch Drive Mapping**: Process multiple drive mappings with shared credential handling
 - **Smart Remapping**: Automatically detects existing mappings and only remaps when necessary
+- **Interactive Prompting**: User-friendly credential prompting with retry logic
 - **Comprehensive Logging**: Integrates with AaTurpin.PSLogger for detailed operation logging
 - **Enterprise Ready**: Designed for enterprise environments with proper validation and error handling
 
@@ -51,6 +53,20 @@ Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Log
 # Map a network drive with credentials
 $credential = Get-UserCredential
 Map-NetworkDrive -DriveLetter "X" -NetworkPath "\\nas\data" -LogPath "C:\Logs\drive.log" -Credential $credential
+```
+
+### Batch Drive Mapping
+
+```powershell
+# Define multiple drive mappings
+$driveMappings = @(
+    @{ letter = "V"; path = "\\server\share1" },
+    @{ letter = "W"; path = "\\server\share2" },
+    @{ letter = "X"; path = "\\nas\data" }
+)
+
+# Map all drives with interactive credential prompting
+Initialize-DriveMappings -DriveMappings $driveMappings -LogPath "C:\Logs\drive.log"
 ```
 
 ### Getting User Credentials
@@ -135,138 +151,214 @@ $success = Map-NetworkDrive -DriveLetter "X" -NetworkPath "\\nas\data" -LogPath 
 Map-NetworkDrive -DriveLetter "Y" -NetworkPath "\\server\test" -LogPath "C:\Logs\drive.log" -WhatIf
 ```
 
+### Initialize-DriveMappings
+
+Maps multiple network drives with optional credential prompting and shared credential handling.
+
+**Syntax:**
+```powershell
+Initialize-DriveMappings [-DriveMappings] <array> [-LogPath] <string>
+```
+
+**Parameters:**
+- `DriveMappings`: Array of drive mapping objects with 'letter' and 'path' properties
+- `LogPath`: Path to the log file for recording operations
+
+**Behavior:**
+- Attempts to map each drive without credentials first
+- Prompts for credentials on failures (once per session, reused for all drives)
+- Throws an exception if any mappings fail after retry attempts
+- Provides detailed console feedback and comprehensive logging
+
+**Examples:**
+
+**Basic batch mapping:**
+```powershell
+$mappings = @(
+    @{ letter = "V"; path = "\\server\engineering" },
+    @{ letter = "W"; path = "\\server\shared" },
+    @{ letter = "X"; path = "\\nas\archives" }
+)
+
+Initialize-DriveMappings -DriveMappings $mappings -LogPath "C:\Logs\drive.log"
+```
+
+**With configuration from AaTurpin.PSConfig:**
+```powershell
+$settings = Read-SettingsFile -SettingsPath "settings.json" -LogPath $logPath
+Initialize-DriveMappings -DriveMappings $settings.driveMappings -LogPath $logPath
+```
+
+**Error handling:**
+```powershell
+try {
+    Initialize-DriveMappings -DriveMappings $mappings -LogPath $logPath
+    Write-Host "All drives mapped successfully!" -ForegroundColor Green
+}
+catch {
+    Write-Host "Drive mapping failed: $($_.Exception.Message)" -ForegroundColor Red
+    # Handle the error (e.g., exit, retry, etc.)
+    exit 1
+}
+```
+
 ## Advanced Usage
 
 ### Enterprise Deployment Script
 
 ```powershell
-# Enterprise drive mapping script
+# Enterprise drive mapping script with error handling
 Import-Module AaTurpin.PSNetworkDriveMapper
 Import-Module AaTurpin.PSLogger
 
 $logPath = "C:\Logs\$(Get-Date -Format 'yyyy-MM-dd')_drive_mapping.log"
 
-# Get credentials once for all mappings
-Write-Host "Enter credentials for network drive access:" -ForegroundColor Cyan
-$credential = Get-UserCredential -Domain "corp"
-
-# Define drive mappings
-$driveMappings = @(
-    @{ Letter = "V"; Path = "\\server01\engineering" },
-    @{ Letter = "W"; Path = "\\server02\shared" },
-    @{ Letter = "X"; Path = "\\nas01\archives" }
+# Define enterprise drive mappings
+$enterpriseMappings = @(
+    @{ letter = "V"; path = "\\server01\engineering" },
+    @{ letter = "W"; path = "\\server02\shared" },
+    @{ letter = "X"; path = "\\nas01\archives" },
+    @{ letter = "Y"; path = "\\backup\daily" }
 )
 
 Write-LogInfo -LogPath $logPath -Message "Starting enterprise drive mapping process"
 
-foreach ($mapping in $driveMappings) {
-    try {
-        $success = Map-NetworkDrive -DriveLetter $mapping.Letter -NetworkPath $mapping.Path -LogPath $logPath -Credential $credential
-        
-        if ($success) {
-            Write-Host "✓ Successfully mapped drive $($mapping.Letter): $($mapping.Path)" -ForegroundColor Green
-        } else {
-            Write-Host "✗ Failed to map drive $($mapping.Letter): $($mapping.Path)" -ForegroundColor Red
-        }
-    }
-    catch {
-        Write-LogError -LogPath $logPath -Message "Critical error mapping drive $($mapping.Letter)" -Exception $_.Exception
-        Write-Host "✗ Critical error mapping drive $($mapping.Letter): $($_.Exception.Message)" -ForegroundColor Red
-    }
+try {
+    # Use batch mapping with automatic credential handling
+    Initialize-DriveMappings -DriveMappings $enterpriseMappings -LogPath $logPath
+    
+    Write-Host "✓ All enterprise drives mapped successfully!" -ForegroundColor Green
+    Write-LogInfo -LogPath $logPath -Message "Enterprise drive mapping completed successfully"
 }
-
-Write-LogInfo -LogPath $logPath -Message "Enterprise drive mapping process completed"
+catch {
+    Write-LogError -LogPath $logPath -Message "Enterprise drive mapping failed" -Exception $_.Exception
+    Write-Host "✗ Enterprise drive mapping failed: $($_.Exception.Message)" -ForegroundColor Red
+    
+    # Graceful degradation or exit
+    Read-Host "Press Enter to exit"
+    exit 1
+}
 ```
 
-### Domain-Specific Credential Scenarios
+### Mixed Individual and Batch Mapping
 
 ```powershell
-# Scenario 1: Multiple domains
-function Get-DomainCredentials {
-    $credentials = @{}
-    
-    # Get credentials for different domains
-    Write-Host "Setting up credentials for different domains..." -ForegroundColor Cyan
-    
-    $credentials["corp"] = Get-UserCredential -Domain "corp"
-    $credentials["dev"] = Get-UserCredential -Domain "dev"
-    
-    return $credentials
-}
+# Combine individual and batch mapping approaches
+Import-Module AaTurpin.PSNetworkDriveMapper
 
-# Usage
-$domainCreds = Get-DomainCredentials()
-Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\corp.server\share" -LogPath $logPath -Credential $domainCreds["corp"]
-Map-NetworkDrive -DriveLetter "W" -NetworkPath "\\dev.server\data" -LogPath $logPath -Credential $domainCreds["dev"]
-```
+$logPath = "C:\Logs\mixed_mapping.log"
 
-```powershell
-# Scenario 2: Interactive domain selection
-function Get-InteractiveDomainCredential {
-    $domains = @("corp", "dev", "prod", "test")
+# Map critical drives individually with specific error handling
+try {
+    Write-Host "Mapping critical drive V:..." -ForegroundColor Yellow
+    $credential = Get-UserCredential -Domain "corp"
+    $success = Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\critical\data" -LogPath $logPath -Credential $credential
     
-    Write-Host "Available domains:" -ForegroundColor Yellow
-    for ($i = 0; $i -lt $domains.Count; $i++) {
-        Write-Host "  $($i + 1). $($domains[$i])" -ForegroundColor Gray
+    if (-not $success) {
+        throw "Critical drive V: mapping failed"
     }
     
-    $choice = Read-Host "Select domain (1-$($domains.Count))"
-    $selectedDomain = $domains[[int]$choice - 1]
-    
-    return Get-UserCredential -Domain $selectedDomain
+    Write-Host "✓ Critical drive V: mapped successfully" -ForegroundColor Green
+}
+catch {
+    Write-Host "✗ Critical drive mapping failed, cannot continue" -ForegroundColor Red
+    exit 1
 }
 
-# Usage
-$credential = Get-InteractiveDomainCredential
+# Map additional drives in batch
+$additionalMappings = @(
+    @{ letter = "W"; path = "\\server\shared" },
+    @{ letter = "X"; path = "\\nas\backup" },
+    @{ letter = "Y"; path = "\\archive\old" }
+)
+
+try {
+    Write-Host "`nMapping additional drives..." -ForegroundColor Yellow
+    Initialize-DriveMappings -DriveMappings $additionalMappings -LogPath $logPath
+    Write-Host "✓ Additional drives mapped successfully" -ForegroundColor Green
+}
+catch {
+    Write-Host "⚠ Some additional drives failed to map, but continuing with critical drive available" -ForegroundColor Yellow
+    Write-LogWarning -LogPath $logPath -Message "Additional drive mapping partially failed: $($_.Exception.Message)"
+}
 ```
 
-### Validation and Error Handling
+### Integration with Configuration Files
 
 ```powershell
-# Comprehensive validation example
-function Test-DriveMapping {
+# Load configuration and use batch mapping
+Import-Module AaTurpin.PSConfig
+Import-Module AaTurpin.PSNetworkDriveMapper
+
+$logPath = "C:\Logs\config_mapping.log"
+
+try {
+    # Read configuration file
+    $config = Read-SettingsFile -SettingsPath "settings.json" -LogPath $logPath
+    
+    if ($config.driveMappings.Count -eq 0) {
+        Write-Host "No drive mappings configured in settings.json" -ForegroundColor Yellow
+        exit 0
+    }
+    
+    Write-Host "Found $($config.driveMappings.Count) drive mappings in configuration" -ForegroundColor Cyan
+    
+    # Use batch mapping for all configured drives
+    Initialize-DriveMappings -DriveMappings $config.driveMappings -LogPath $logPath
+    
+    Write-Host "✓ All configured drives mapped successfully!" -ForegroundColor Green
+}
+catch {
+    Write-LogError -LogPath $logPath -Message "Configuration-based drive mapping failed" -Exception $_.Exception
+    Write-Host "✗ Drive mapping failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+```
+
+### Custom Credential Scenarios
+
+```powershell
+# Different domains for different drives
+function Initialize-MultiDomainDrives {
     param(
-        [string]$DriveLetter,
-        [string]$NetworkPath,
-        [string]$LogPath,
-        [string]$Domain
+        [array]$CorporateDrives,
+        [array]$DevelopmentDrives,
+        [string]$LogPath
     )
     
     try {
-        # Validate parameters
-        if (-not [char]::IsLetter($DriveLetter) -or $DriveLetter.Length -ne 1) {
-            throw "Invalid drive letter: must be a single alphabetic character"
+        # Map corporate drives
+        if ($CorporateDrives.Count -gt 0) {
+            Write-Host "Mapping corporate drives..." -ForegroundColor Cyan
+            Initialize-DriveMappings -DriveMappings $CorporateDrives -LogPath $LogPath
         }
         
-        if (-not $NetworkPath.StartsWith("\\")) {
-            throw "Invalid network path: must be a UNC path starting with \\"
+        # Map development drives (may need different credentials)
+        if ($DevelopmentDrives.Count -gt 0) {
+            Write-Host "`nMapping development drives..." -ForegroundColor Cyan
+            Initialize-DriveMappings -DriveMappings $DevelopmentDrives -LogPath $LogPath
         }
         
-        # Test network connectivity
-        if (-not (Test-Path $NetworkPath -ErrorAction SilentlyContinue)) {
-            Write-LogWarning -LogPath $LogPath -Message "Network path may not be accessible: $NetworkPath"
-        }
-        
-        # Get credentials with appropriate domain
-        if ($Domain) {
-            $credential = Get-UserCredential -Domain $Domain
-        } else {
-            $credential = Get-UserCredential
-        }
-        
-        # Attempt mapping
-        $result = Map-NetworkDrive -DriveLetter $DriveLetter -NetworkPath $NetworkPath -LogPath $LogPath -Credential $credential
-        
-        return $result
+        Write-Host "✓ All multi-domain drives mapped successfully!" -ForegroundColor Green
     }
     catch {
-        Write-LogError -LogPath $LogPath -Message "Drive mapping validation failed" -Exception $_.Exception
-        return $false
+        Write-Host "✗ Multi-domain drive mapping failed: $($_.Exception.Message)" -ForegroundColor Red
+        throw
     }
 }
 
 # Usage
-$success = Test-DriveMapping -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Logs\validation.log" -Domain "corp"
+$corpDrives = @(
+    @{ letter = "V"; path = "\\corp-server\shared" },
+    @{ letter = "W"; path = "\\corp-nas\data" }
+)
+
+$devDrives = @(
+    @{ letter = "X"; path = "\\dev-server\projects" },
+    @{ letter = "Y"; path = "\\dev-nas\builds" }
+)
+
+Initialize-MultiDomainDrives -CorporateDrives $corpDrives -DevelopmentDrives $devDrives -LogPath "C:\Logs\multi_domain.log"
 ```
 
 ## Integration with Other AaTurpin Modules
@@ -274,64 +366,73 @@ $success = Test-DriveMapping -DriveLetter "V" -NetworkPath "\\server\share" -Log
 ### Using with AaTurpin.PSConfig
 
 ```powershell
-# Load configuration and map drives
+# Streamlined configuration-based setup
 Import-Module AaTurpin.PSConfig
 Import-Module AaTurpin.PSNetworkDriveMapper
 
-$logPath = "C:\Logs\config_mapping.log"
-$config = Read-SettingsFile -LogPath $logPath
+$logPath = "C:\Logs\config_setup.log"
 
-# Get credentials once for all drive mappings
-Write-Host "Enter network credentials for drive mapping:" -ForegroundColor Cyan
-$credential = Get-UserCredential -Domain "corp"
-
-# Map drives from configuration
-foreach ($driveMapping in $config.driveMappings) {
-    $success = Map-NetworkDrive -DriveLetter $driveMapping.letter -NetworkPath $driveMapping.path -LogPath $logPath -Credential $credential
-    
-    if (-not $success) {
-        Write-LogError -LogPath $logPath -Message "Failed to map configured drive: $($driveMapping.letter) -> $($driveMapping.path)"
-    }
-}
+# Read configuration and initialize drives in one step
+$config = Read-SettingsFile -SettingsPath "settings.json" -LogPath $logPath
+Initialize-DriveMappings -DriveMappings $config.driveMappings -LogPath $logPath
 ```
 
-### Automated Setup Script
+### Complete Automated Setup Script
 
 ```powershell
-# Complete automated setup matching your settings.json structure
+# Complete automated setup with comprehensive error handling
 Import-Module AaTurpin.PSConfig
 Import-Module AaTurpin.PSNetworkDriveMapper
+Import-Module AaTurpin.PSPowerControl
 
 $logPath = "C:\Logs\automated_setup.log"
 
 try {
+    Write-LogInfo -LogPath $logPath -Message "Starting automated network drive setup"
+    
+    # Prevent system sleep during setup
+    Disable-Sleep -LogPath $logPath
+    
     # Read configuration
-    $config = Read-SettingsFile -LogPath $logPath
+    Write-Host "Reading configuration..." -ForegroundColor Cyan
+    $config = Read-SettingsFile -SettingsPath "settings.json" -LogPath $logPath
     
-    # Get credentials for corporate domain
-    Write-Host "Setting up network drives for corporate environment..." -ForegroundColor Cyan
-    $credential = Get-UserCredential -Domain "corp"
+    # Initialize all drive mappings with batch processing
+    Write-Host "Initializing drive mappings..." -ForegroundColor Cyan
+    Initialize-DriveMappings -DriveMappings $config.driveMappings -LogPath $logPath
     
-    # Map drives from configuration
-    foreach ($driveMapping in $config.driveMappings) {
-        Write-Host "Mapping drive $($driveMapping.letter): $($driveMapping.path)" -ForegroundColor Yellow
-        
-        $success = Map-NetworkDrive -DriveLetter $driveMapping.letter -NetworkPath $driveMapping.path -LogPath $logPath -Credential $credential
-        
-        if ($success) {
-            Write-Host "✓ Drive $($driveMapping.letter): successfully mapped" -ForegroundColor Green
-        } else {
-            Write-Host "✗ Drive $($driveMapping.letter): mapping failed" -ForegroundColor Red
-        }
-    }
-    
-    Write-Host "Drive mapping setup completed. Check logs at: $logPath" -ForegroundColor Cyan
+    Write-Host "✓ Automated setup completed successfully!" -ForegroundColor Green
+    Write-LogInfo -LogPath $logPath -Message "Automated setup completed successfully"
 }
 catch {
     Write-LogError -LogPath $logPath -Message "Automated setup failed" -Exception $_.Exception
-    Write-Host "Setup failed. Check logs for details: $logPath" -ForegroundColor Red
+    Write-Host "✗ Setup failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+finally {
+    # Re-enable system sleep
+    Enable-Sleep -LogPath $logPath
 }
 ```
+
+## Batch Mapping Benefits
+
+The new `Initialize-DriveMappings` function provides several advantages over individual mapping:
+
+### Credential Efficiency
+- **Single Credential Prompt**: Get credentials once, use for all drives
+- **Smart Retry Logic**: Prompts only when needed, not for every drive
+- **User-Friendly**: Clear prompts with easy yes/no decisions
+
+### Error Handling
+- **Comprehensive Logging**: Detailed logs for each mapping attempt
+- **Aggregate Reporting**: See all successes and failures at once
+- **Fail-Fast Behavior**: Stops immediately if any mapping fails (configurable)
+
+### Enterprise Features
+- **Batch Processing**: Handle dozens of drives efficiently
+- **Configuration Integration**: Works seamlessly with AaTurpin.PSConfig
+- **Automated Deployment**: Perfect for login scripts and automation
 
 ## Username Format Examples
 
@@ -367,11 +468,31 @@ $cred = Get-UserCredential -Domain "domain"
 
 ### Common Issues
 
-**Issue: "Access Denied" errors**
+**Issue: "Access Denied" errors during batch mapping**
 ```powershell
 # Solution: Ensure correct domain and credentials
-$credential = Get-UserCredential -Domain "corp"
-# Verify domain name is correct and user has access
+# The batch function will prompt for credentials automatically
+# Make sure the domain name is correct when prompted
+```
+
+**Issue: Some drives map, others fail**
+```powershell
+# The Initialize-DriveMappings function will show exactly which drives failed
+# Check the logs for detailed error information per drive
+Get-Content "C:\Logs\drive.log" | Select-String "ERROR"
+```
+
+**Issue: Batch mapping stops on first failure**
+```powershell
+# This is by design for reliability
+# If you need to continue with partial failures, use individual Map-NetworkDrive calls
+```
+
+**Issue: Credential prompt appears multiple times**
+```powershell
+# This happens when initial mapping without credentials fails
+# The function will ask once if you want to provide credentials
+# Answer 'Y' to provide credentials that will be used for all subsequent drives
 ```
 
 **Issue: Wrong domain format**
@@ -383,19 +504,6 @@ Write-Host "Current domain: $env:USERDOMAIN"
 $credential = Get-UserCredential -Domain $env:USERDOMAIN
 ```
 
-**Issue: Username format confusion**
-```powershell
-# Clear format: specify domain parameter
-$credential = Get-UserCredential -Domain "corp"
-# Now user only enters username, no domain confusion
-```
-
-**Issue: Drive already mapped to different location**
-```powershell
-# The module automatically handles this by removing existing mapping first
-# Check logs for details about remapping operations
-```
-
 **Issue: Network path not accessible**
 ```powershell
 # Test connectivity first
@@ -403,12 +511,6 @@ Test-Path "\\server\share" -ErrorAction SilentlyContinue
 
 # Check network connectivity
 Test-NetConnection server -Port 445  # SMB port
-```
-
-**Issue: PowerShell execution policy**
-```powershell
-# Set execution policy to allow module execution
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ### Debug Mode
@@ -419,44 +521,55 @@ Enable verbose logging for troubleshooting:
 # Enable verbose output
 $VerbosePreference = "Continue"
 
-# Map drive with detailed logging
-Map-NetworkDrive -DriveLetter "V" -NetworkPath "\\server\share" -LogPath "C:\Logs\debug.log" -Verbose
+# Use batch mapping with detailed logging
+Initialize-DriveMappings -DriveMappings $mappings -LogPath "C:\Logs\debug.log" -Verbose
 
 # Check detailed logs
 Get-Content "C:\Logs\debug.log" | Select-Object -Last 20
 ```
 
-### Credential Testing
+### Testing Batch Mapping
 
 ```powershell
-# Test credential creation without mapping
-function Test-CredentialFormats {
-    Write-Host "Testing different credential input formats..." -ForegroundColor Cyan
+# Test batch mapping with a small set first
+function Test-BatchMapping {
+    $testMappings = @(
+        @{ letter = "T"; path = "\\server\test1" },
+        @{ letter = "U"; path = "\\server\test2" }
+    )
     
-    Write-Host "`n1. With domain parameter:" -ForegroundColor Yellow
-    $cred1 = Get-UserCredential -Domain "corp"
-    Write-Host "Result: $($cred1.UserName)" -ForegroundColor Green
-    
-    Write-Host "`n2. Without domain parameter:" -ForegroundColor Yellow
-    $cred2 = Get-UserCredential
-    Write-Host "Result: $($cred2.UserName)" -ForegroundColor Green
+    try {
+        Initialize-DriveMappings -DriveMappings $testMappings -LogPath "C:\Logs\test.log"
+        Write-Host "✓ Batch mapping test successful" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Host "✗ Batch mapping test failed: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
 }
 
-Test-CredentialFormats
+# Run test before production mapping
+if (Test-BatchMapping) {
+    # Proceed with full mapping
+    Initialize-DriveMappings -DriveMappings $productionMappings -LogPath $logPath
+}
 ```
 
 ## Security Considerations
 
 - **Credential Storage**: Credentials are not stored permanently; they must be entered each session
 - **Secure Input**: Passwords are entered securely and never displayed
+- **Batch Security**: In batch mode, credentials are reused in memory only for the duration of the operation
 - **Logging**: Passwords are never logged; only usernames and operation results are recorded
 - **Domain Validation**: Input validation prevents domain injection attacks
 - **Error Handling**: Detailed error information is logged without exposing sensitive data
 
 ## Performance Notes
 
+- **Batch Efficiency**: `Initialize-DriveMappings` is significantly faster than individual mappings for multiple drives
 - **Smart Mapping**: Only remaps drives when necessary, improving performance
-- **Credential Reuse**: Get credentials once and reuse for multiple mappings
+- **Credential Reuse**: Get credentials once and reuse for multiple mappings in batch mode
 - **Domain Optimization**: Pre-specifying domain reduces user input complexity
 - **Logging Efficiency**: Uses thread-safe logging from AaTurpin.PSLogger module
 
@@ -470,6 +583,7 @@ This module is licensed under the MIT License. See the project repository for fu
 
 ## Version History
 
+- **1.1.0**: Added Initialize-DriveMappings function for batch drive mapping operations with shared credential handling and comprehensive error reporting
 - **1.0.0**: Initial release with flexible credential management and robust drive mapping functionality
 
 ## Related Modules
